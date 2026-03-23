@@ -7,6 +7,31 @@ let ipcMain: any = null;
 let shell: any = null;
 let serviceContainer: any = null;
 
+// Allowlisted PHP directives that can be modified
+const ALLOWED_PHP_KEYS = new Set([
+  'memory_limit', 'max_input_vars', 'max_input_time',
+  'post_max_size', 'upload_max_filesize',
+]);
+
+// Keys that must never appear in parsed settings objects
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+// Validate that a path is under an expected Local Sites directory
+function isValidSitePath(sitePath: string): boolean {
+  const expanded = expandPath(sitePath);
+  const localSitesDir = path.join(os.homedir(), 'Local Sites');
+  const resolved = path.resolve(expanded);
+  return resolved.startsWith(localSitesDir + path.sep);
+}
+
+// Validate that a log path is within a site's wp-content directory
+function isValidLogPath(logPath: string, sitePath: string): boolean {
+  const wpRoot = findWpRoot(sitePath);
+  const resolved = path.resolve(logPath);
+  const wpContent = path.join(wpRoot, 'wp-content');
+  return resolved.startsWith(wpContent + path.sep);
+}
+
 // Helper functions
 
 function getRuntimePhpIni(siteId: string): string {
@@ -14,9 +39,18 @@ function getRuntimePhpIni(siteId: string): string {
   return path.join(home, 'Library', 'Application Support', 'Local', 'run', siteId, 'conf', 'php', 'php.ini');
 }
 
-// Safe in-place update: only modifies specific key=value lines, never creates files
+// Safe in-place update: only modifies allowed key=value lines, never creates files
 function updatePhpIniLines(filePath: string, settings: { [key: string]: string }): boolean {
   if (!fs.existsSync(filePath)) return false;
+  // Filter to only allowed PHP keys, strip newlines from values to prevent injection
+  const safeSettings: any = Object.create(null);
+  for (const k of Object.keys(settings)) {
+    if (ALLOWED_PHP_KEYS.has(k) && !DANGEROUS_KEYS.has(k)) {
+      safeSettings[k] = String(settings[k]).replace(/[\r\n]/g, '');
+    }
+  }
+  if (Object.keys(safeSettings).length === 0) return false;
+
   const raw = fs.readFileSync(filePath, 'utf8');
   const lines = raw.split('\n');
   let changed = false;
@@ -25,9 +59,9 @@ function updatePhpIniLines(filePath: string, settings: { [key: string]: string }
     const trimmed = line.trim();
     if (trimmed.startsWith(';') || trimmed === '' || !trimmed.includes('=')) return line;
     const key = trimmed.split('=')[0].trim();
-    if (settings.hasOwnProperty(key)) {
+    if (key in safeSettings) {
       changed = true;
-      return `${key} = ${settings[key]}`;
+      return `${key} = ${safeSettings[key]}`;
     }
     return line;
   });
@@ -111,7 +145,7 @@ function writeConfig(configPath: string, next: any) {
 function readPhpIni(iniPath: string) {
   if (!fs.existsSync(iniPath)) return {};
   const raw = fs.readFileSync(iniPath, 'utf8');
-  const settings: any = {};
+  const settings: any = Object.create(null);
   const lines = raw.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
@@ -119,6 +153,7 @@ function readPhpIni(iniPath: string) {
     const parts = trimmed.split('=');
     if (parts.length < 2) continue;
     const key = parts[0].trim();
+    if (DANGEROUS_KEYS.has(key)) continue;
     const value = parts.slice(1).join('=').trim();
     settings[key] = value;
   }
@@ -678,6 +713,7 @@ function registerHandlers() {
   // ── WP Debug Toggle Handlers ──
 
   ipcMain.handle('wpdebug:getState', (evt: any, { sitePath }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     try {
       const { configPath, defaultLogPath } = getPaths(sitePath);
       const cfg = readConfig(configPath);
@@ -694,6 +730,7 @@ function registerHandlers() {
   });
 
   ipcMain.handle('wpdebug:setState', (evt: any, { sitePath, state }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     const { configPath, defaultLogPath } = getPaths(sitePath);
     writeConfig(configPath, state);
     if (state.WP_DEBUG && state.WP_DEBUG_LOG) {
@@ -703,8 +740,10 @@ function registerHandlers() {
   });
 
   ipcMain.handle('wpdebug:readLog', (evt: any, { sitePath, logPath }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     const { defaultLogPath } = getPaths(sitePath);
     const p = logPath || defaultLogPath;
+    if (logPath && !isValidLogPath(logPath, sitePath)) throw new Error('Invalid log path');
     try {
       if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8');
       return '';
@@ -714,8 +753,10 @@ function registerHandlers() {
   });
 
   ipcMain.handle('wpdebug:openLog', async (evt: any, { sitePath, logPath }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     const { defaultLogPath } = getPaths(sitePath);
     const p = logPath || defaultLogPath;
+    if (logPath && !isValidLogPath(logPath, sitePath)) throw new Error('Invalid log path');
     ensureFile(p);
     try {
       if (shell) {
@@ -728,8 +769,10 @@ function registerHandlers() {
   });
 
   ipcMain.handle('wpdebug:clearLog', (evt: any, { sitePath, logPath }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     const { defaultLogPath } = getPaths(sitePath);
     const p = logPath || defaultLogPath;
+    if (logPath && !isValidLogPath(logPath, sitePath)) throw new Error('Invalid log path');
     try {
       fs.writeFileSync(p, '', 'utf8');
       return true;
@@ -741,6 +784,7 @@ function registerHandlers() {
   // ── WP Config Editor Handlers ──
 
   ipcMain.handle('wpconfig:read', (evt: any, { sitePath }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     try {
       const { configPath } = getPaths(sitePath);
       if (!fs.existsSync(configPath)) {
@@ -754,6 +798,7 @@ function registerHandlers() {
   });
 
   ipcMain.handle('wpconfig:write', (evt: any, { sitePath, content }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     try {
       const { configPath } = getPaths(sitePath);
       // Always create a backup before writing
@@ -770,6 +815,7 @@ function registerHandlers() {
   });
 
   ipcMain.handle('wpconfig:openInEditor', async (evt: any, { sitePath }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     try {
       const { configPath } = getPaths(sitePath);
       if (shell) {
@@ -784,6 +830,7 @@ function registerHandlers() {
   // ── PHP Settings Handlers ──
 
   ipcMain.handle('phpsettings:read', (evt: any, { sitePath, phpVersion, siteId }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     try {
       const expanded = expandPath(sitePath);
       // Per the Local docs, edit the existing file in the site's /conf directory
@@ -808,6 +855,7 @@ function registerHandlers() {
   });
 
   ipcMain.handle('phpsettings:write', (evt: any, { sitePath, settings, phpVersion, siteId }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     try {
       const expanded = expandPath(sitePath);
       const hbsPath = path.join(expanded, 'conf', 'php', 'php.ini.hbs');
@@ -832,6 +880,7 @@ function registerHandlers() {
   });
 
   ipcMain.handle('phpsettings:openInEditor', async (evt: any, { sitePath, phpVersion, siteId }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
     try {
       const expanded = expandPath(sitePath);
       const hbsPath = path.join(expanded, 'conf', 'php', 'php.ini.hbs');

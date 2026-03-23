@@ -26,8 +26,8 @@ const getLocalComponents = () => {
 
 	if (!components || Object.keys(components).length === 0) {
 		try {
-			const evalRequire = eval('require');
-			const evalComponents = evalRequire('@getflywheel/local-components');
+			const nodeRequire = typeof __non_webpack_require__ !== 'undefined' ? __non_webpack_require__ : require;
+			const evalComponents = nodeRequire('@getflywheel/local-components');
 			if (evalComponents && Object.keys(evalComponents).length > 0) {
 				components = evalComponents;
 			}
@@ -768,7 +768,10 @@ export default function (context) {
 					style: { color: '#0C5460', fontWeight: 'bold', textDecoration: 'underline' },
 					onClick: (e) => {
 						e.preventDefault();
-						electron.shell.openExternal(update.downloadUrl);
+						const url = update.downloadUrl || '';
+						if (url.startsWith('https://github.com/EverleeLabs/')) {
+							electron.shell.openExternal(url);
+						}
 					}
 				}, 'Download')
 			]),
