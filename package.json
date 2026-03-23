@@ -1,0 +1,32 @@
+{
+  "name": "local-debug-toolkit",
+  "productName": "Local Debug Toolkit",
+  "version": "1.0.0",
+  "author": "Everlee Labs",
+  "keywords": [
+    "local-addon"
+  ],
+  "bgColor": "#0073aa",
+  "icon": "icon.svg",
+  "slug": "local-debug-toolkit",
+  "description": "A toolkit to debug sites that lets you enable debug, view the log, edit wp-config.php and modify PHP settings per site.",
+  "renderer": "lib/renderer.js",
+  "main": "lib/main.js",
+  "scripts": {
+    "build": "npx tsc src/main.ts --outDir lib --module commonjs --target es2015 --esModuleInterop && webpack --config webpack.config.js",
+    "watch": "npx tsc src/main.ts --outDir lib --module commonjs --target es2015 --esModuleInterop --watch & webpack --config webpack.config.js --watch",
+    "package": "./package-addon.sh"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.0.0",
+    "@babel/preset-env": "^7.0.0",
+    "@babel/preset-react": "^7.0.0",
+    "@getflywheel/local-components": "^17.8.1",
+    "babel-loader": "^9.0.0",
+    "ts-loader": "^9.5.0",
+    "typescript": "^5.0.0",
+    "webpack": "^5.0.0",
+    "webpack-cli": "^5.0.0"
+  },
+  "license": "MIT"
+}

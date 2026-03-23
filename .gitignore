@@ -1,0 +1,5 @@
+node_modules/
+.package-temp/
+*.tgz
+*.tar.gz
+.DS_Store
