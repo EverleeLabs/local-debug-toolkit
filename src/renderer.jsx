@@ -189,6 +189,7 @@ export default function (context) {
 		const [WP_DEBUG, setWP_DEBUG] = useState(false);
 		const [WP_DEBUG_LOG, setWP_DEBUG_LOG] = useState(false);
 		const [WP_DEBUG_DISPLAY, setWP_DEBUG_DISPLAY] = useState(false);
+		const [MU_PLUGIN_ENABLED, setMU_PLUGIN_ENABLED] = useState(false);
 		const [logContent, setLogContent] = useState('');
 		const [logLoading, setLogLoading] = useState(false);
 
@@ -199,6 +200,7 @@ export default function (context) {
 					setWP_DEBUG(res.WP_DEBUG || false);
 					setWP_DEBUG_LOG(res.WP_DEBUG_LOG || false);
 					setWP_DEBUG_DISPLAY(res.WP_DEBUG_DISPLAY || false);
+					setMU_PLUGIN_ENABLED(res.MU_PLUGIN_ENABLED || false);
 				})
 				.catch(() => {});
 		}, [site]);
@@ -275,6 +277,28 @@ export default function (context) {
 			let checked = typeof value === 'boolean' ? value : !currentVal;
 			setter(checked);
 			saveState({ [key]: checked });
+			// Mirror the backend's auto-clean: turning WP_DEBUG_LOG off removes the mu-plugin
+			if (key === 'WP_DEBUG_LOG' && !checked) setMU_PLUGIN_ENABLED(false);
+		};
+
+		const handleMuPluginToggle = (value) => {
+			const checked = typeof value === 'boolean' ? value : !MU_PLUGIN_ENABLED;
+			setMU_PLUGIN_ENABLED(checked);
+			if (!site) return;
+			const sitePath = site.path || site.rootPath || site.directory;
+			if (!sitePath) return;
+			ipc.invoke('wpdebug:setMuPlugin', { sitePath, enabled: checked })
+				.then((res) => {
+					setMU_PLUGIN_ENABLED(!!(res && res.enabled));
+					notifier.notify({
+						title: 'WP Debug',
+						message: checked ? 'In-admin log viewer installed (Tools → Debug Log)' : 'In-admin log viewer removed'
+					});
+				})
+				.catch((err) => {
+					setMU_PLUGIN_ENABLED(!checked);
+					notifier.notify({ title: 'WP Debug Error', message: err.message || 'Failed to update mu-plugin' });
+				});
 		};
 
 		return ReactForJSX.createElement('div', {
@@ -287,9 +311,12 @@ export default function (context) {
 				style: { marginTop: 20, display: 'flex', flexDirection: 'column', gap: 20 }
 			}, [
 				renderToggle(components, WP_DEBUG, handleToggle('WP_DEBUG', setWP_DEBUG, WP_DEBUG), 'WP_DEBUG', 'wp-debug'),
-				WP_DEBUG ? ReactForJSX.createElement('div', { key: 'wp-debug-log-wrapper', style: { marginLeft: 20 } }, [
-					renderToggle(components, WP_DEBUG_LOG, handleToggle('WP_DEBUG_LOG', setWP_DEBUG_LOG, WP_DEBUG_LOG), 'WP_DEBUG_LOG', 'wp-debug-log')
-				]) : null,
+				WP_DEBUG ? ReactForJSX.createElement('div', { key: 'wp-debug-log-wrapper', style: { marginLeft: 20, display: 'flex', flexDirection: 'column', gap: 12 } }, [
+					renderToggle(components, WP_DEBUG_LOG, handleToggle('WP_DEBUG_LOG', setWP_DEBUG_LOG, WP_DEBUG_LOG), 'WP_DEBUG_LOG', 'wp-debug-log'),
+					WP_DEBUG_LOG ? ReactForJSX.createElement('div', { key: 'mu-plugin-wrapper', style: { marginLeft: 20 } }, [
+						renderToggle(components, MU_PLUGIN_ENABLED, handleMuPluginToggle, 'Show in WP Admin (Tools → Debug Log)', 'mu-plugin')
+					]) : null
+				].filter(Boolean)) : null,
 				WP_DEBUG ? ReactForJSX.createElement('div', { key: 'wp-debug-display-wrapper', style: { marginLeft: 20 } }, [
 					renderToggle(components, WP_DEBUG_DISPLAY, handleToggle('WP_DEBUG_DISPLAY', setWP_DEBUG_DISPLAY, WP_DEBUG_DISPLAY), 'WP_DEBUG_DISPLAY', 'wp-debug-display')
 				]) : null,

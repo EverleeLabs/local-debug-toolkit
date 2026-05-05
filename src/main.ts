@@ -439,7 +439,7 @@ function scanPhpConfigFiles(sitePath: string): Array<{ path: string; type: strin
 
 function updatePhpConfigFile(filePath: string, settings: any): boolean {
   const lower = filePath.toLowerCase();
-  if (lower.endsWith('.php.ini') || lower.endsWith('.ini') || lower.endsWith('.hbs')) {
+  if (lower.endsWith('.ini') || lower.endsWith('.hbs')) {
     const current = readPhpIni(filePath);
     const merged = { ...current, ...settings };
     // When updating template files (.hbs), avoid rewriting Handlebars blocks.
@@ -703,6 +703,144 @@ function ensureFile(pth: string) {
   } catch (_) {}
 }
 
+// MU-plugin: in-WP-admin debug log viewer. Installed on demand via the
+// "Show in WP Admin" toggle; auto-removed when WP_DEBUG_LOG is turned off.
+const MU_PLUGIN_FILENAME = 'local-debug-toolkit-log-viewer.php';
+
+function getMuPluginPath(sitePath: string): string {
+  const wpRoot = findWpRoot(sitePath);
+  return path.join(wpRoot, 'wp-content', 'mu-plugins', MU_PLUGIN_FILENAME);
+}
+
+function isValidMuPluginPath(muPath: string, sitePath: string): boolean {
+  const wpRoot = findWpRoot(sitePath);
+  const muDir = path.join(wpRoot, 'wp-content', 'mu-plugins');
+  const resolved = path.resolve(muPath);
+  return resolved === path.join(muDir, MU_PLUGIN_FILENAME);
+}
+
+function getMuPluginSource(): string {
+  return `<?php
+/**
+ * Plugin Name: Local Debug Toolkit — Log Viewer
+ * Description: Adds Tools → Debug Log to wp-admin. Managed by Local Debug Toolkit; toggle from Local to remove.
+ * Version: 1.1.0
+ * Author: Everlee Labs
+ */
+
+if (!defined('ABSPATH')) exit;
+
+if (!function_exists('ldt_log_path')) {
+  function ldt_log_path() {
+    if (defined('WP_DEBUG_LOG') && is_string(WP_DEBUG_LOG)) return WP_DEBUG_LOG;
+    return WP_CONTENT_DIR . '/debug.log';
+  }
+}
+
+add_action('admin_menu', function () {
+  add_management_page('Debug Log', 'Debug Log', 'manage_options', 'ldt-debug-log', 'ldt_render_debug_log_page');
+});
+
+add_action('admin_bar_menu', function ($wp_admin_bar) {
+  if (!is_admin_bar_showing()) return;
+  if (!current_user_can('manage_options')) return;
+  if (!defined('WP_DEBUG_LOG') || !WP_DEBUG_LOG) return;
+
+  $wp_admin_bar->add_node([
+    'id'    => 'ldt-debug-log',
+    'title' => '&#x1F41E; Debug Log',
+    'href'  => admin_url('tools.php?page=ldt-debug-log'),
+    'meta'  => ['title' => 'View Debug Log'],
+  ]);
+}, 100);
+
+add_action('admin_init', function () {
+  if (!isset($_GET['page'], $_GET['ldt_action'])) return;
+  if ($_GET['page'] !== 'ldt-debug-log' || $_GET['ldt_action'] !== 'download') return;
+  if (!current_user_can('manage_options')) wp_die('Insufficient permissions');
+  check_admin_referer('ldt_download_log');
+
+  $path = ldt_log_path();
+  if (!file_exists($path)) wp_die('Log file not found');
+
+  nocache_headers();
+  header('Content-Type: text/plain; charset=utf-8');
+  header('Content-Disposition: attachment; filename="debug.log"');
+  header('Content-Length: ' . filesize($path));
+  readfile($path);
+  exit;
+});
+
+function ldt_render_debug_log_page() {
+  if (!current_user_can('manage_options')) wp_die('Insufficient permissions');
+
+  $path = ldt_log_path();
+  $tail = 500 * 1024;
+  $exists = file_exists($path);
+  $size = $exists ? filesize($path) : 0;
+  $content = '';
+  $truncated = false;
+
+  if ($exists && $size > 0) {
+    $fh = @fopen($path, 'rb');
+    if ($fh) {
+      if ($size > $tail) {
+        fseek($fh, -$tail, SEEK_END);
+        fgets($fh); // skip the partial first line
+        $truncated = true;
+      }
+      $content = stream_get_contents($fh);
+      fclose($fh);
+    }
+  }
+
+  $dl = wp_nonce_url(admin_url('tools.php?page=ldt-debug-log&ldt_action=download'), 'ldt_download_log');
+  $refresh = admin_url('tools.php?page=ldt-debug-log');
+  ?>
+  <div class="wrap">
+    <h1>Debug Log</h1>
+    <p>
+      <code><?php echo esc_html($path); ?></code>
+      <?php if ($exists): ?> &mdash; <?php echo esc_html(size_format($size)); ?><?php endif; ?>
+    </p>
+    <p>
+      <a class="button button-primary" href="<?php echo esc_url($refresh); ?>">Refresh</a>
+      <?php if ($exists && $size > 0): ?>
+        <a class="button" href="<?php echo esc_url($dl); ?>">Download full log</a>
+      <?php endif; ?>
+    </p>
+    <?php if (!$exists): ?>
+      <p><em>Log file does not exist yet.</em></p>
+    <?php elseif ($size === 0): ?>
+      <p><em>Log file is empty.</em></p>
+    <?php else: ?>
+      <?php if ($truncated): ?>
+        <p><em>Showing last 500&nbsp;KB of a <?php echo esc_html(size_format($size)); ?> file. <a href="<?php echo esc_url($dl); ?>">Download full log</a> for everything.</em></p>
+      <?php endif; ?>
+      <textarea readonly style="width:100%;height:600px;font-family:monospace;font-size:12px;white-space:pre;background:#1e1e1e;color:#d4d4d4;padding:12px;border:1px solid #ddd;"><?php echo esc_textarea($content); ?></textarea>
+    <?php endif; ?>
+  </div>
+  <?php
+}
+`;
+}
+
+function installMuPlugin(sitePath: string): boolean {
+  const muPath = getMuPluginPath(sitePath);
+  if (!isValidMuPluginPath(muPath, sitePath)) return false;
+  const muDir = path.dirname(muPath);
+  if (!fs.existsSync(muDir)) fs.mkdirSync(muDir, { recursive: true });
+  fs.writeFileSync(muPath, getMuPluginSource(), 'utf8');
+  return true;
+}
+
+function removeMuPlugin(sitePath: string): boolean {
+  const muPath = getMuPluginPath(sitePath);
+  if (!isValidMuPluginPath(muPath, sitePath)) return false;
+  if (fs.existsSync(muPath)) fs.unlinkSync(muPath);
+  return true;
+}
+
 // Register all IPC handlers
 function registerHandlers() {
   if (!ipcMain) {
@@ -721,6 +859,7 @@ function registerHandlers() {
         WP_DEBUG: cfg.WP_DEBUG,
         WP_DEBUG_DISPLAY: cfg.WP_DEBUG_DISPLAY,
         WP_DEBUG_LOG: cfg.WP_DEBUG_LOG,
+        MU_PLUGIN_ENABLED: fs.existsSync(getMuPluginPath(sitePath)),
         logPath: defaultLogPath,
       };
     } catch (err: any) {
@@ -736,7 +875,26 @@ function registerHandlers() {
     if (state.WP_DEBUG && state.WP_DEBUG_LOG) {
       ensureFile(defaultLogPath);
     }
+    // Auto-clean: the mu-plugin only makes sense while WP_DEBUG_LOG is on
+    if (!state.WP_DEBUG_LOG) {
+      try { removeMuPlugin(sitePath); } catch (_) {}
+    }
     return true;
+  });
+
+  ipcMain.handle('wpdebug:setMuPlugin', (evt: any, { sitePath, enabled }: any) => {
+    if (!isValidSitePath(sitePath)) throw new Error('Invalid site path');
+    try {
+      if (enabled) {
+        const ok = installMuPlugin(sitePath);
+        if (!ok) throw new Error('Failed to install mu-plugin');
+      } else {
+        removeMuPlugin(sitePath);
+      }
+      return { enabled: fs.existsSync(getMuPluginPath(sitePath)) };
+    } catch (e: any) {
+      throw new Error(`Failed to update mu-plugin: ${e.message}`);
+    }
   });
 
   ipcMain.handle('wpdebug:readLog', (evt: any, { sitePath, logPath }: any) => {
