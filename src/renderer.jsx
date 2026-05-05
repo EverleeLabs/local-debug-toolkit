@@ -769,6 +769,7 @@ export default function (context) {
 		const ipc = electron.ipcRenderer;
 		const [update, setUpdate] = useState(null);
 		const [dismissed, setDismissed] = useState(false);
+		const [updateState, setUpdateState] = useState('idle'); // idle | updating | done | error
 
 		useEffect(() => {
 			ipc.invoke('wpdebug:checkForUpdate')
@@ -780,6 +781,63 @@ export default function (context) {
 
 		if (!update || dismissed) return null;
 
+		const handleUpdate = () => {
+			const url = update.downloadUrl || '';
+			if (!url.startsWith('https://github.com/EverleeLabs/') &&
+				!url.startsWith('https://objects.githubusercontent.com/')) return;
+			setUpdateState('updating');
+			ipc.invoke('wpdebug:performUpdate', { downloadUrl: url })
+				.then(() => setUpdateState('done'))
+				.catch(() => setUpdateState('error'));
+		};
+
+		const handleDownload = (e) => {
+			e.preventDefault();
+			const url = update.downloadUrl || '';
+			if (url.startsWith('https://github.com/EverleeLabs/')) {
+				electron.shell.openExternal(url);
+			}
+		};
+
+		const dismiss = ReactForJSX.createElement('span', {
+			key: 'dismiss',
+			style: { cursor: 'pointer', marginLeft: 12, fontWeight: 'bold', fontSize: '16px' },
+			onClick: () => setDismissed(true)
+		}, '\u00D7');
+
+		if (updateState === 'done') {
+			return ReactForJSX.createElement('div', {
+				style: {
+					padding: '10px 14px', marginBottom: 12, backgroundColor: '#D4EDDA',
+					border: '1px solid #C3E6CB', borderRadius: '4px', fontSize: '13px',
+					color: '#155724', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+				}
+			}, [
+				ReactForJSX.createElement('span', { key: 'msg' }, 'Update installed — please restart Local to complete.'),
+				dismiss
+			]);
+		}
+
+		if (updateState === 'error') {
+			return ReactForJSX.createElement('div', {
+				style: {
+					padding: '10px 14px', marginBottom: 12, backgroundColor: '#F8D7DA',
+					border: '1px solid #F5C6CB', borderRadius: '4px', fontSize: '13px',
+					color: '#721C24', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+				}
+			}, [
+				ReactForJSX.createElement('span', { key: 'msg' }, [
+					'Update failed. ',
+					ReactForJSX.createElement('a', {
+						key: 'dl', href: '#',
+						style: { color: '#721C24', fontWeight: 'bold', textDecoration: 'underline' },
+						onClick: handleDownload
+					}, 'Download manually')
+				]),
+				dismiss
+			]);
+		}
+
 		return ReactForJSX.createElement('div', {
 			style: {
 				padding: '10px 14px', marginBottom: 12, backgroundColor: '#D1ECF1',
@@ -787,26 +845,28 @@ export default function (context) {
 				color: '#0C5460', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
 			}
 		}, [
-			ReactForJSX.createElement('span', { key: 'msg' }, [
-				'Update available: v', update.latestVersion, ' (you have v', update.currentVersion, ') — ',
-				ReactForJSX.createElement('a', {
-					key: 'link',
-					href: '#',
-					style: { color: '#0C5460', fontWeight: 'bold', textDecoration: 'underline' },
-					onClick: (e) => {
-						e.preventDefault();
-						const url = update.downloadUrl || '';
-						if (url.startsWith('https://github.com/EverleeLabs/')) {
-							electron.shell.openExternal(url);
-						}
+			ReactForJSX.createElement('span', { key: 'msg' },
+				`Update available: v${update.latestVersion} (you have v${update.currentVersion})`
+			),
+			ReactForJSX.createElement('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', gap: 10 } }, [
+				ReactForJSX.createElement('button', {
+					key: 'update-btn',
+					onClick: handleUpdate,
+					disabled: updateState === 'updating',
+					style: {
+						padding: '4px 12px', fontSize: '12px', fontWeight: '700',
+						cursor: updateState === 'updating' ? 'not-allowed' : 'pointer',
+						border: 'none', backgroundColor: '#0C5460', color: '#fff',
+						borderRadius: '50px', opacity: updateState === 'updating' ? 0.7 : 1
 					}
-				}, 'Download')
-			]),
-			ReactForJSX.createElement('span', {
-				key: 'dismiss',
-				style: { cursor: 'pointer', marginLeft: 12, fontWeight: 'bold', fontSize: '16px' },
-				onClick: () => setDismissed(true)
-			}, '\u00D7')
+				}, updateState === 'updating' ? 'Updating...' : 'Update Now'),
+				ReactForJSX.createElement('a', {
+					key: 'dl-link', href: '#',
+					style: { color: '#0C5460', fontSize: '12px', textDecoration: 'underline' },
+					onClick: handleDownload
+				}, 'Download'),
+				dismiss
+			])
 		]);
 	};
 
