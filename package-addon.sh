@@ -5,17 +5,17 @@
 
 set -e
 
-ADDON_NAME="wp-debug-toolkit"
+ADDON_NAME=$(node -p "require('./package.json').slug")
 VERSION=$(node -p "require('./package.json').version")
-PACKAGE_NAME="${ADDON_NAME}-v${VERSION}.tgz"
+PACKAGE_NAME="${ADDON_NAME}-v${VERSION}.tar.gz"
 TEMP_DIR=".package-temp"
 
-echo "Packaging WP Debug Toolkit add-on..."
+echo "Packaging ${ADDON_NAME} add-on..."
 echo ""
 
 # Step 1: Build the add-on
 echo "Building add-on..."
-yarn build
+npm run build
 
 # Step 2: Create temporary directory
 echo "Creating package structure..."
