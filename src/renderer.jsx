@@ -87,6 +87,21 @@ export default function (context) {
 		return localComponents;
 	};
 
+	// ── Dark mode detection ──
+	const useDarkMode = () => {
+		const prefersDark = typeof window !== 'undefined'
+			? window.matchMedia('(prefers-color-scheme: dark)').matches
+			: false;
+		const [isDark, setIsDark] = useState(prefersDark);
+		useEffect(() => {
+			const mq = window.matchMedia('(prefers-color-scheme: dark)');
+			const handler = (e) => setIsDark(e.matches);
+			mq.addEventListener('change', handler);
+			return () => mq.removeEventListener('change', handler);
+		}, []);
+		return isDark;
+	};
+
 	// ── Shared styles ──
 
 	const buttonStyle = {
@@ -173,7 +188,7 @@ export default function (context) {
 			]),
 			ReactForJSX.createElement('span', {
 				key: 'label',
-				style: { fontSize: '14px', color: '#2C3338', fontWeight: 400, lineHeight: '20px' }
+				style: { fontSize: '14px', color: 'inherit', fontWeight: 400, lineHeight: '20px' }
 			}, label)
 		]);
 	};
@@ -184,6 +199,7 @@ export default function (context) {
 
 	const WPDebugPanel = (props) => {
 		const components = resolveComponents();
+		const isDark = useDarkMode();
 		const ipc = electron.ipcRenderer;
 		const site = props.site;
 		const [WP_DEBUG, setWP_DEBUG] = useState(false);
@@ -331,7 +347,7 @@ export default function (context) {
 					}, [
 						components && components.Text
 							? ReactForJSX.createElement(components.Text, { key: 'log-title', style: { fontWeight: 'bold', fontSize: '14px' } }, 'Debug Log')
-							: ReactForJSX.createElement('h3', { key: 'log-title', style: { margin: 0, fontSize: '14px' } }, 'Debug Log'),
+							: ReactForJSX.createElement('h3', { key: 'log-title', style: { margin: 0, fontSize: '14px', color: 'inherit' } }, 'Debug Log'),
 						ReactForJSX.createElement('div', { key: 'log-actions', style: { display: 'flex', gap: 8 } }, [
 							renderButton(components, { key: 'refresh-btn', onClick: loadDebugLog, disabled: logLoading, children: logLoading ? 'Loading...' : 'Refresh' }),
 							renderButton(components, { key: 'clear-btn', onClick: clearLogFile, children: 'Clear Log' }),
@@ -343,9 +359,11 @@ export default function (context) {
 						value: logContent || (logLoading ? 'Loading...' : 'No log entries yet.'),
 						style: {
 							width: '100%', height: '300px', fontFamily: 'monospace', fontSize: '12px',
-							padding: '12px', border: '1px solid #ddd', borderRadius: '4px',
-							backgroundColor: '#f5f5f5', resize: 'vertical', overflowY: 'auto',
-							whiteSpace: 'pre', wordWrap: 'off'
+							padding: '12px', border: `1px solid ${isDark ? '#444' : '#ddd'}`, borderRadius: '4px',
+							backgroundColor: isDark ? '#1a1a1a' : '#f5f5f5',
+							color: isDark ? '#d4d4d4' : '#333',
+							resize: 'vertical', overflowY: 'auto',
+							whiteSpace: 'pre-wrap', wordWrap: 'break-word'
 						}
 					})
 				]) : null
@@ -450,7 +468,7 @@ export default function (context) {
 				style: { flex: '1', overflowY: 'auto', margin: '10px', padding: '24px' }
 			}, [
 				ReactForJSX.createElement('h2', { key: 'title' }, 'WP Config'),
-				ReactForJSX.createElement('p', { key: 'loading', style: { color: '#666' } }, 'Loading wp-config.php...')
+				ReactForJSX.createElement('p', { key: 'loading', style: { color: 'inherit', opacity: 0.6 } }, 'Loading wp-config.php...')
 			]);
 		}
 
@@ -459,7 +477,7 @@ export default function (context) {
 				style: { flex: '1', overflowY: 'auto', margin: '10px', padding: '24px' }
 			}, [
 				ReactForJSX.createElement('h2', { key: 'title' }, 'WP Config'),
-				ReactForJSX.createElement('p', { key: 'not-found', style: { color: '#999' } }, 'wp-config.php not found for this site.')
+				ReactForJSX.createElement('p', { key: 'not-found', style: { color: 'inherit', opacity: 0.55 } }, 'wp-config.php not found for this site.')
 			]);
 		}
 
@@ -489,7 +507,7 @@ export default function (context) {
 			// File path display
 			ReactForJSX.createElement('p', {
 				key: 'filepath',
-				style: { fontSize: '12px', color: '#888', margin: '0 0 12px 0', fontFamily: 'monospace' }
+				style: { fontSize: '12px', color: 'inherit', opacity: 0.55, margin: '0 0 12px 0', fontFamily: 'monospace' }
 			}, configPath),
 
 			// Unsaved changes indicator
@@ -509,9 +527,9 @@ export default function (context) {
 				spellCheck: false,
 				style: {
 					flex: 1, minHeight: '500px', fontFamily: 'monospace', fontSize: '13px',
-					lineHeight: '1.5', padding: '16px', border: '1px solid #ddd', borderRadius: '4px',
+					lineHeight: '1.5', padding: '16px', border: '1px solid #3a3a3a', borderRadius: '4px',
 					backgroundColor: '#1e1e1e', color: '#d4d4d4', resize: 'vertical',
-					overflowY: 'auto', whiteSpace: 'pre', tabSize: 4, outline: 'none'
+					overflowY: 'auto', whiteSpace: 'pre-wrap', wordWrap: 'break-word', tabSize: 4, outline: 'none'
 				},
 				onKeyDown: (e) => {
 					// Handle Tab key for indentation
@@ -543,6 +561,7 @@ export default function (context) {
 
 	const PHPSettingsPanel = (props) => {
 		const components = resolveComponents();
+		const isDark = useDarkMode();
 		const ipc = electron.ipcRenderer;
 		const site = props.site;
 		const [settings, setSettings] = useState({});
@@ -688,8 +707,11 @@ export default function (context) {
 					value,
 					onChange,
 					style: {
-						width: '100%', padding: '8px 12px', border: '1px solid #ddd',
-						borderRadius: '4px', fontSize: '14px', fontFamily: 'monospace'
+						width: '100%', padding: '8px 12px',
+						border: `1px solid ${isDark ? '#444' : '#ddd'}`,
+						borderRadius: '4px', fontSize: '14px', fontFamily: 'monospace',
+						backgroundColor: isDark ? '#1a1a1a' : '#fff',
+						color: 'inherit'
 					}
 				})
 			]);
@@ -700,7 +722,7 @@ export default function (context) {
 				style: { flex: '1', overflowY: 'auto', margin: '10px', padding: '24px' }
 			}, [
 				ReactForJSX.createElement('h2', { key: 'title' }, 'PHP Settings'),
-				ReactForJSX.createElement('p', { key: 'loading', style: { color: '#666' } }, 'Loading PHP settings...')
+				ReactForJSX.createElement('p', { key: 'loading', style: { color: 'inherit', opacity: 0.6 } }, 'Loading PHP settings...')
 			]);
 		}
 
@@ -730,7 +752,7 @@ export default function (context) {
 			// File path display
 			ReactForJSX.createElement('div', {
 				key: 'filepaths',
-				style: { fontSize: '12px', color: '#888', margin: '0 0 12px 0', fontFamily: 'monospace' }
+				style: { fontSize: '12px', color: 'inherit', opacity: 0.55, margin: '0 0 12px 0', fontFamily: 'monospace' }
 			}, `Config: ${iniPath}`),
 
 			// Unsaved changes indicator
