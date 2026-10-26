@@ -148,44 +148,41 @@ export default function (context) {
 
 	// ── Render toggle or checkbox ──
 
-	const renderToggle = (components, checked, onChange, label, key) => {
-		if (components && components.available && components.Toggle && components.Text) {
-			const toggleOnChange = (newValue) => {
-				const finalValue = typeof newValue === 'boolean' ? newValue : !checked;
-				onChange(finalValue);
-			};
-			return ReactForJSX.createElement('div', {
-				key, style: { display: 'flex', alignItems: 'center', gap: 12 }
-			}, [
-				ReactForJSX.createElement(components.Toggle, { key: 'toggle', checked, onChange: toggleOnChange }),
-				ReactForJSX.createElement(components.Text, { key: 'label', style: { marginLeft: 8 } }, label)
-			]);
-		}
+	// Local's own components (@getflywheel/local-components) aren't loadable from an add-on,
+	// since Local bundles them internally, so this recreates its tiny flat Switch.
+	// Values come from Local's CSS; Local puts Theme__Light/Theme__Dark on <body>.
+	const SWITCH_CSS = `
+.ldt-switch button { -webkit-appearance: none; box-sizing: border-box; display: inline-block; vertical-align: middle; position: relative; overflow: hidden; width: 48px; height: 20px; padding: 5px; border: 0; border-radius: 1.6em; font-size: 10px; cursor: pointer; background: #c7c4c4; transition: background 200ms ease 0ms; }
+.Theme__Dark .ldt-switch button { background: #434344; }
+.ldt-switch button::before { content: ""; display: block; position: relative; top: -1px; left: 0; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: left 200ms ease 0ms; }
+.Theme__Dark .ldt-switch button::before { background: #e7e7e7; }
+.ldt-switch button::after { content: "Off"; display: block; position: absolute; top: 0; left: 20px; line-height: 22px; font-size: 11px; font-weight: 900; color: #fff; transition: left 200ms ease 0ms; }
+.Theme__Dark .ldt-switch button::after { color: #e7e7e7; }
+.ldt-switch button[aria-pressed=true] { background: #267048; }
+.Theme__Dark .ldt-switch button[aria-pressed=true] { background: #51bb7b; }
+.ldt-switch button[aria-pressed=true]::before { left: calc(100% - 12px); background: #fff; }
+.ldt-switch button[aria-pressed=true]::after { content: "On"; top: -1px; left: 8px; color: #fff; }
+`;
 
-		// Fallback styled toggle
-		const handleToggleClick = () => onChange(!checked);
+	// Add the styles to Local's window once, when the add-on loads
+	const injectStyles = (id, css) => {
+		if (typeof document === 'undefined' || document.getElementById(id)) return;
+		const style = document.createElement('style');
+		style.id = id;
+		style.textContent = css;
+		document.head.appendChild(style);
+	};
+	injectStyles(`${addonID}-switch`, SWITCH_CSS);
+
+	const renderToggle = (checked, onChange, label, key) => {
 		return ReactForJSX.createElement('div', {
 			key,
 			style: { display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', userSelect: 'none' },
-			onClick: handleToggleClick
+			onClick: () => onChange(!checked)
 		}, [
-			ReactForJSX.createElement('div', {
-				key: 'toggle-track',
-				style: {
-					position: 'relative', width: 40, height: 20,
-					backgroundColor: checked ? '#267048' : '#D0D0D0',
-					borderRadius: 10, transition: 'background-color 0.2s ease', flexShrink: 0
-				}
-			}, [
-				ReactForJSX.createElement('div', {
-					key: 'toggle-thumb',
-					style: {
-						position: 'absolute', top: 2, left: checked ? 20 : 2,
-						width: 16, height: 16, backgroundColor: '#fff', borderRadius: '50%',
-						transition: 'left 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
-					}
-				})
-			]),
+			ReactForJSX.createElement('div', { key: 'switch', className: 'ldt-switch' },
+				ReactForJSX.createElement('button', { type: 'button', 'aria-pressed': !!checked, 'aria-label': label })
+			),
 			ReactForJSX.createElement('span', {
 				key: 'label',
 				style: { fontSize: '14px', color: 'inherit', fontWeight: 400, lineHeight: '20px' }
@@ -326,15 +323,15 @@ export default function (context) {
 				key: 'toggles',
 				style: { marginTop: 20, display: 'flex', flexDirection: 'column', gap: 20 }
 			}, [
-				renderToggle(components, WP_DEBUG, handleToggle('WP_DEBUG', setWP_DEBUG, WP_DEBUG), 'WP_DEBUG', 'wp-debug'),
+				renderToggle(WP_DEBUG, handleToggle('WP_DEBUG', setWP_DEBUG, WP_DEBUG), 'WP_DEBUG', 'wp-debug'),
 				WP_DEBUG ? ReactForJSX.createElement('div', { key: 'wp-debug-log-wrapper', style: { marginLeft: 20, display: 'flex', flexDirection: 'column', gap: 12 } }, [
-					renderToggle(components, WP_DEBUG_LOG, handleToggle('WP_DEBUG_LOG', setWP_DEBUG_LOG, WP_DEBUG_LOG), 'WP_DEBUG_LOG', 'wp-debug-log'),
+					renderToggle(WP_DEBUG_LOG, handleToggle('WP_DEBUG_LOG', setWP_DEBUG_LOG, WP_DEBUG_LOG), 'WP_DEBUG_LOG', 'wp-debug-log'),
 					WP_DEBUG_LOG ? ReactForJSX.createElement('div', { key: 'mu-plugin-wrapper', style: { marginLeft: 20 } }, [
-						renderToggle(components, MU_PLUGIN_ENABLED, handleMuPluginToggle, 'Show in WP Admin (Tools → Debug Log)', 'mu-plugin')
+						renderToggle(MU_PLUGIN_ENABLED, handleMuPluginToggle, 'Show in WP Admin (Tools → Debug Log)', 'mu-plugin')
 					]) : null
 				].filter(Boolean)) : null,
 				WP_DEBUG ? ReactForJSX.createElement('div', { key: 'wp-debug-display-wrapper', style: { marginLeft: 20 } }, [
-					renderToggle(components, WP_DEBUG_DISPLAY, handleToggle('WP_DEBUG_DISPLAY', setWP_DEBUG_DISPLAY, WP_DEBUG_DISPLAY), 'WP_DEBUG_DISPLAY', 'wp-debug-display')
+					renderToggle(WP_DEBUG_DISPLAY, handleToggle('WP_DEBUG_DISPLAY', setWP_DEBUG_DISPLAY, WP_DEBUG_DISPLAY), 'WP_DEBUG_DISPLAY', 'wp-debug-display')
 				]) : null,
 
 				// Debug log viewer
@@ -994,24 +991,113 @@ export default function (context) {
 		]);
 	};
 
-	// ── Register all panels in Tools tab ──
+	// ════════════════════════════════════════════
+	// Add-on settings (Preferences → Local Debug Toolkit)
+	// ════════════════════════════════════════════
 
-	hooks.addFilter('siteInfoToolsItem', (menu) => [
+	const FEATURES = [
+		{ id: 'debug', name: 'WP Debug', description: 'Debug toggles and log viewer' },
+		{ id: 'config', name: 'WP Config', description: 'wp-config.php editor' },
+		{ id: 'php', name: 'PHP Settings', description: 'Per-site PHP configuration' },
+	];
+
+	const FEATURES_STORAGE_KEY = `${addonID}:enabledFeatures`;
+
+	// All features are on unless the user has turned them off
+	const loadEnabledFeatures = () => {
+		const defaults = { debug: true, config: true, php: true };
+		try {
+			return { ...defaults, ...JSON.parse(window.localStorage.getItem(FEATURES_STORAGE_KEY)) };
+		} catch (e) {
+			return defaults;
+		}
+	};
+
+	// Local's Apply button calls onApply() with no arguments, so the
+	// settings component hands its unsaved choices over through this
+	let pendingFeatures = null;
+
+	// Recreates Local's TableList rows (see SWITCH_CSS for why we can't use Local's components)
+	const PREFERENCES_CSS = `
+.ldt-prefs { list-style: none; margin: 0; padding: 0; display: table; width: 100%; color: #5d5e5e; font-weight: 300; }
+.Theme__Dark .ldt-prefs { color: #e7e7e7; }
+.ldt-prefs > li { display: table-row; height: 48px; }
+.ldt-prefs > li:nth-child(even) { background: #fafafa; }
+.Theme__Dark .ldt-prefs > li:nth-child(even) { background: #292a2a; }
+.ldt-prefs > li > strong { display: table-cell; width: 1%; padding: 0 30px; line-height: 48px; color: #262727; font-weight: 500; white-space: nowrap; vertical-align: top; }
+.Theme__Dark .ldt-prefs > li > strong { color: #fff; }
+.ldt-prefs > li > div { display: table-cell; padding: 14px 30px 0 0; }
+.ldt-prefs > li > div > p { margin: 14px 0; }
+`;
+
+	injectStyles(`${addonID}-preferences`, PREFERENCES_CSS);
+
+	const FeatureSettings = (props) => {
+		const [features, setFeatures] = useState(loadEnabledFeatures);
+
+		useEffect(() => {
+			pendingFeatures = null;
+		}, []);
+
+		const handleChange = (id) => (value) => {
+			const next = { ...features, [id]: value };
+			setFeatures(next);
+			pendingFeatures = next;
+			props.setApplyButtonDisabled(false);
+		};
+
+		return ReactForJSX.createElement('div', null, [
+			ReactForJSX.createElement('ul', { key: 'rows', className: 'ldt-prefs' }, FEATURES.map((f) =>
+				ReactForJSX.createElement('li', { key: f.id }, [
+					ReactForJSX.createElement('strong', { key: 'label' }, f.name),
+					ReactForJSX.createElement('div', { key: 'control' }, [
+						ReactForJSX.createElement('div', { key: 'switch', className: 'ldt-switch' },
+							ReactForJSX.createElement('button', {
+								type: 'button',
+								'aria-pressed': !!features[f.id],
+								'aria-label': f.name,
+								onClick: () => handleChange(f.id)(!features[f.id])
+							})
+						),
+						ReactForJSX.createElement('p', { key: 'desc' }, `${f.description}.`)
+					])
+				])
+			))
+		]);
+	};
+
+	hooks.addFilter('preferencesMenuItems', (menu) => [
 		...menu,
 		{
-			menuItem: 'WP Debug',
-			path: `/${addonID}/debug`,
-			render: withUpdateBanner(WPDebugPanel),
-		},
-		{
-			menuItem: 'WP Config',
-			path: `/${addonID}/config`,
-			render: withUpdateBanner(WPConfigPanel),
-		},
-		{
-			menuItem: 'PHP Settings',
-			path: `/${addonID}/php`,
-			render: withUpdateBanner(PHPSettingsPanel),
+			path: addonID,
+			displayName: 'Local Debug Toolkit',
+			sections: FeatureSettings,
+			onApply: () => {
+				if (!pendingFeatures) return;
+				try {
+					window.localStorage.setItem(FEATURES_STORAGE_KEY, JSON.stringify(pendingFeatures));
+				} catch (e) {
+					notifier.notify({ title: 'Local Debug Toolkit', message: 'Could not save settings' });
+				}
+				pendingFeatures = null;
+			},
 		},
 	]);
+
+	// ── Register enabled panels in Tools tab ──
+
+	const PANELS = [
+		{ id: 'debug', menuItem: 'WP Debug', path: `/${addonID}/debug`, render: withUpdateBanner(WPDebugPanel) },
+		{ id: 'config', menuItem: 'WP Config', path: `/${addonID}/config`, render: withUpdateBanner(WPConfigPanel) },
+		{ id: 'php', menuItem: 'PHP Settings', path: `/${addonID}/php`, render: withUpdateBanner(PHPSettingsPanel) },
+	];
+
+	// Local runs this filter each time it draws the Tools tab, so settings changes apply without a restart
+	hooks.addFilter('siteInfoToolsItem', (menu) => {
+		const enabled = loadEnabledFeatures();
+		return [
+			...menu,
+			...PANELS.filter((p) => enabled[p.id]).map(({ id, ...item }) => item),
+		];
+	});
 }
