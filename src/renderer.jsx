@@ -386,7 +386,10 @@ export default function (context) {
 		const [configPath, setConfigPath] = useState('');
 		const [exists, setExists] = useState(false);
 
+		const editorRef = useRef(null);
+
 		const hasChanges = content !== savedContent;
+		const lines = content.split('\n');
 
 		// Load wp-config.php on mount
 		useEffect(() => {
@@ -519,39 +522,79 @@ export default function (context) {
 				}
 			}, 'You have unsaved changes') : null,
 
-			// Editor textarea
-			ReactForJSX.createElement('textarea', {
+			// Editor with line numbers. Each line is mirrored (invisibly) in a grid row next to
+			// its number, so wrapped lines grow their row and the numbers stay aligned. The
+			// textarea spans all rows on top of the mirror; the outer div does the scrolling.
+			ReactForJSX.createElement('div', {
 				key: 'editor',
-				value: content,
-				onChange: (e) => setContent(e.target.value),
-				spellCheck: false,
+				onMouseDown: (e) => {
+					// Clicks in the empty space below the text focus the editor
+					if (e.target === e.currentTarget && editorRef.current) {
+						e.preventDefault();
+						editorRef.current.focus();
+					}
+				},
 				style: {
 					flex: 1, minHeight: '500px', fontFamily: 'monospace', fontSize: '13px',
-					lineHeight: '1.5', padding: '16px', border: '1px solid #3a3a3a', borderRadius: '4px',
-					backgroundColor: '#1e1e1e', color: '#d4d4d4', resize: 'vertical',
-					overflowY: 'auto', whiteSpace: 'pre-wrap', wordWrap: 'break-word', tabSize: 4, outline: 'none'
-				},
-				onKeyDown: (e) => {
-					// Handle Tab key for indentation
-					if (e.key === 'Tab') {
-						e.preventDefault();
-						const textarea = e.target;
-						const start = textarea.selectionStart;
-						const end = textarea.selectionEnd;
-						const newContent = content.substring(0, start) + '\t' + content.substring(end);
-						setContent(newContent);
-						// Restore cursor position after React re-renders
-						setTimeout(() => {
-							textarea.selectionStart = textarea.selectionEnd = start + 1;
-						}, 0);
-					}
-					// Handle Ctrl/Cmd+S to save
-					if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-						e.preventDefault();
-						if (hasChanges && !saving) handleSave();
-					}
+					lineHeight: '1.5', border: '1px solid #3a3a3a', borderRadius: '4px',
+					backgroundColor: '#1e1e1e', resize: 'vertical', overflowY: 'auto', cursor: 'text'
 				}
-			})
+			}, ReactForJSX.createElement('div', {
+				style: {
+					display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)',
+					gridTemplateRows: `repeat(${lines.length}, auto)`, padding: '16px 16px 16px 0'
+				}
+			}, [
+				...lines.map((line, i) => ReactForJSX.createElement('div', {
+					key: `num-${i}`,
+					style: {
+						gridColumn: 1, gridRow: i + 1, padding: '0 16px', textAlign: 'right',
+						color: '#858585', userSelect: 'none'
+					}
+				}, i + 1)),
+				...lines.map((line, i) => ReactForJSX.createElement('div', {
+					key: `mirror-${i}`,
+					'aria-hidden': true,
+					style: {
+						gridColumn: 2, gridRow: i + 1, visibility: 'hidden',
+						whiteSpace: 'pre-wrap', wordWrap: 'break-word', tabSize: 4
+					}
+				}, line || '\u200b')),
+				ReactForJSX.createElement('textarea', {
+					key: 'textarea',
+					ref: editorRef,
+					value: content,
+					onChange: (e) => setContent(e.target.value),
+					spellCheck: false,
+					rows: 1,
+					style: {
+						gridColumn: 2, gridRow: '1 / -1', width: '100%', height: '100%', minHeight: 0,
+						margin: 0, padding: 0, border: 'none', backgroundColor: 'transparent',
+						font: 'inherit', lineHeight: 'inherit', color: '#d4d4d4', resize: 'none',
+						overflow: 'hidden', whiteSpace: 'pre-wrap', wordWrap: 'break-word', tabSize: 4, outline: 'none'
+					},
+					onKeyDown: (e) => {
+						// Handle Tab key for indentation
+						if (e.key === 'Tab') {
+							e.preventDefault();
+							const textarea = e.target;
+							const start = textarea.selectionStart;
+							const end = textarea.selectionEnd;
+							const newContent = content.substring(0, start) + '\t' + content.substring(end);
+							setContent(newContent);
+							// Restore cursor position after React re-renders
+							setTimeout(() => {
+								textarea.selectionStart = textarea.selectionEnd = start + 1;
+							}, 0);
+						}
+						// Handle Ctrl/Cmd+S to save
+						if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+							e.preventDefault();
+							if (hasChanges && !saving) handleSave();
+						}
+					}
+				})
+			]))
 		].filter(Boolean));
 	};
 
