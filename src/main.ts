@@ -1057,7 +1057,8 @@ function registerHandlers() {
     try {
       const https = require('https');
       const pkg = require('../package.json');
-      const currentVersion = pkg.version;
+      // Dev-only: launch Local with LDT_FAKE_VERSION=1.3.0 to see the update banner
+      const currentVersion = process.env.LDT_FAKE_VERSION || pkg.version;
       const repo = 'EverleeLabs/local-debug-toolkit';
 
       const data: string = await new Promise((resolve, reject) => {
@@ -1174,6 +1175,12 @@ function registerHandlers() {
 
       const srcDir = path.join(tmpDir, 'local-debug-toolkit');
       if (!fs.existsSync(srcDir)) throw new Error('Unexpected archive structure');
+
+      // A symlinked add-on folder is a dev checkout; copying would overwrite the repo
+      if (fs.lstatSync(addonDir).isSymbolicLink()) {
+        console.log('Local Debug Toolkit: add-on folder is a symlink (dev install), skipping copy');
+        return { success: true, skippedCopy: true };
+      }
 
       copyDir(srcDir, addonDir);
       return { success: true };
