@@ -613,6 +613,8 @@ export default function (context) {
 		const [saving, setSaving] = useState(false);
 		const [iniPath, setIniPath] = useState('');
 		const [exists, setExists] = useState(false);
+		const [restartNeeded, setRestartNeeded] = useState(false);
+		const [restarting, setRestarting] = useState(false);
 
 		const hasChanges = JSON.stringify(settings) !== JSON.stringify(savedSettings);
 
@@ -689,7 +691,7 @@ export default function (context) {
 				.then(() => {
 					setSavedSettings({ ...settings });
 					setSaving(false);
-					notifier.notify({ title: 'PHP Settings', message: 'PHP settings saved successfully. You may need to restart the site for changes to take effect.' });
+					setRestartNeeded(true);
 					handleReload();
 				})
 				.catch((err) => {
@@ -807,6 +809,46 @@ export default function (context) {
 				}
 			}, 'You have unsaved changes') : null,
 
+			// Restart site banner
+			restartNeeded ? ReactForJSX.createElement('div', {
+				key: 'restart-banner',
+				style: {
+					padding: '8px 12px', marginBottom: 12, backgroundColor: '#D1ECF1',
+					border: '1px solid #BEE5EB', borderRadius: '4px', fontSize: '13px',
+					color: '#0C5460', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+				}
+			}, [
+				ReactForJSX.createElement('span', { key: 'msg' }, 'Settings saved — restart the site for changes to take effect.'),
+				ReactForJSX.createElement('button', {
+					key: 'restart-btn',
+					disabled: restarting,
+					onClick: () => {
+						setRestarting(true);
+						ipc.invoke('wpdebug:restartSite', { siteId: site.id })
+							.then((res) => {
+								setRestarting(false);
+								if (res && res.success) {
+									setRestartNeeded(false);
+								} else {
+									notifier.notify({ title: 'PHP Settings', message: 'Could not restart site automatically — please stop and start the site manually in Local.' });
+									setRestartNeeded(false);
+								}
+							})
+							.catch(() => {
+								setRestarting(false);
+								notifier.notify({ title: 'PHP Settings', message: 'Could not restart site automatically — please stop and start the site manually in Local.' });
+								setRestartNeeded(false);
+							});
+					},
+					style: {
+						padding: '4px 12px', fontSize: '12px', fontWeight: '700',
+						cursor: restarting ? 'not-allowed' : 'pointer',
+						border: 'none', backgroundColor: '#0C5460', color: '#fff',
+						borderRadius: '50px', opacity: restarting ? 0.7 : 1, marginLeft: 12
+					}
+				}, restarting ? 'Restarting...' : 'Restart Site')
+			]) : null,
+
 			// Settings
 			ReactForJSX.createElement('div', {
 				key: 'settings',
@@ -818,7 +860,7 @@ export default function (context) {
 						padding: '12px 16px', marginBottom: 16, backgroundColor: '#FFF3CD',
 						border: '1px solid #FFEAA7', borderRadius: '4px', fontSize: '14px', color: '#856404'
 					}
-				}, '⚠️ PHP settings modifications may require a site restart to take effect. Local uses Docker containers, so changes to php.ini files may not be immediately applied.'),
+				}, '⚠️ PHP settings modifications may require a site restart to take effect.'),
 				renderSettingInput('memory_limit', 'Memory Limit (e.g., 256M, 512M)'),
 				renderSettingInput('post_max_size', 'Post Max Size (e.g., 1000M, 2G)'),
 				renderSettingInput('upload_max_filesize', 'Upload Max Filesize (e.g., 300M, 1G)'),
@@ -871,6 +913,7 @@ export default function (context) {
 		}, '\u00D7');
 
 		if (updateState === 'done') {
+			const restartLocal = () => ipc.invoke('wpdebug:restartApp');
 			return ReactForJSX.createElement('div', {
 				style: {
 					padding: '10px 14px', marginBottom: 12, backgroundColor: '#D4EDDA',
@@ -878,8 +921,17 @@ export default function (context) {
 					color: '#155724', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
 				}
 			}, [
-				ReactForJSX.createElement('span', { key: 'msg' }, 'Update installed — please restart Local to complete.'),
-				dismiss
+				ReactForJSX.createElement('span', { key: 'msg' }, 'Update installed — restart Local to complete.'),
+				ReactForJSX.createElement('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', gap: 8 } }, [
+					ReactForJSX.createElement('button', {
+						key: 'restart-btn', onClick: restartLocal,
+						style: {
+							padding: '4px 12px', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
+							border: 'none', backgroundColor: '#155724', color: '#fff', borderRadius: '50px'
+						}
+					}, 'Restart Local'),
+					dismiss
+				])
 			]);
 		}
 

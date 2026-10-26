@@ -1183,6 +1183,32 @@ function registerHandlers() {
     }
   });
 
+  // ── Restart handlers ──
+
+  ipcMain.handle('wpdebug:restartApp', async () => {
+    const { app } = require('electron');
+    app.relaunch();
+    // quit() (not exit()) so Local runs its normal shutdown and stops running sites first
+    app.quit();
+  });
+
+  ipcMain.handle('wpdebug:restartSite', async (evt: any, { siteId }: any) => {
+    try {
+      const { getServiceContainer } = require('@getflywheel/local/main');
+      const { siteProcessManager, siteData } = getServiceContainer().cradle;
+
+      const site = siteData.getSite(siteId);
+      if (!site) return { success: false, reason: `Site ${siteId} not found` };
+
+      // Same call Local's own restartSite GraphQL mutation makes; it also updates the site status in the UI
+      await siteProcessManager.restart(site);
+      return { success: true };
+    } catch (e: any) {
+      console.error('Local Debug Toolkit: restartSite failed:', e.message);
+      return { success: false, reason: e.message };
+    }
+  });
+
   console.log('Local Debug Toolkit: All IPC handlers registered successfully');
 }
 
@@ -1198,7 +1224,9 @@ try {
   console.log('Local Debug Toolkit: Could not get electron directly:', e.message);
 }
 
-module.exports = (context: any) => {
+// Local loads add-ons with `new AddonClass(context)`, so this must be a regular
+// function, not an arrow function (arrow functions can't be called with `new`)
+module.exports = function (context: any) {
   // If handlers weren't registered yet, try from context
   if (!ipcMain && context && context.electron) {
     ipcMain = context.electron.ipcMain;
