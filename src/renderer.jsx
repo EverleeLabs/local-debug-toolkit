@@ -612,8 +612,72 @@ export default function (context) {
 		const [exists, setExists] = useState(false);
 		const [restartNeeded, setRestartNeeded] = useState(false);
 		const [restarting, setRestarting] = useState(false);
+		const [staleProcs, setStaleProcs] = useState(null);
+		const [stopping, setStopping] = useState(false);
 
 		const hasChanges = JSON.stringify(settings) !== JSON.stringify(savedSettings);
+
+		// Leftover processes from an earlier Local session can hold the site's ports and PHP
+		// socket. The site then can't restart, and requests keep reaching the old PHP workers,
+		// so saved settings never take effect.
+		const checkStaleProcesses = () => {
+			if (!site) return Promise.resolve([]);
+			return ipc.invoke('wpdebug:findStaleProcesses', { siteId: site.id })
+				.then((res) => (res && res.processes) || [])
+				.catch(() => []);
+		};
+
+		useEffect(() => {
+			checkStaleProcesses().then((stale) => setStaleProcs(stale.length ? stale : null));
+		}, [site]);
+
+		const restartFailed = (message) => {
+			notifier.notify({ title: 'PHP Settings', message: message || 'Could not restart site automatically — please stop and start the site manually in Local.' });
+			setRestartNeeded(false);
+		};
+
+		const restartSite = () => {
+			setRestarting(true);
+			setStaleProcs(null);
+			checkStaleProcesses()
+				.then((stale) => {
+					if (stale.length) {
+						setStaleProcs(stale);
+						return null;
+					}
+					return ipc.invoke('wpdebug:restartSite', { siteId: site.id }).then((res) => {
+						if (res && res.success) {
+							setRestartNeeded(false);
+							return null;
+						}
+						// A failed or stuck restart is usually a blocked port; look again
+						return checkStaleProcesses().then((after) => {
+							if (after.length) setStaleProcs(after);
+							else restartFailed(res && res.timedOut ? 'The site is taking too long to restart. Check its status in Local.' : null);
+						});
+					});
+				})
+				.catch(() => restartFailed())
+				.then(() => setRestarting(false));
+		};
+
+		const stopStaleAndRestart = () => {
+			setStopping(true);
+			ipc.invoke('wpdebug:killStaleProcesses', { siteId: site.id })
+				.then((res) => {
+					setStopping(false);
+					if (res && res.failed && res.failed.length) {
+						notifier.notify({ title: 'PHP Settings', message: `Could not stop process ${res.failed.join(', ')}.` });
+						return checkStaleProcesses().then((stale) => setStaleProcs(stale.length ? stale : null));
+					}
+					restartSite();
+					return null;
+				})
+				.catch((err) => {
+					setStopping(false);
+					notifier.notify({ title: 'PHP Settings', message: err.message || 'Failed to stop leftover processes' });
+				});
+		};
 
 		// Load PHP settings on mount
 		useEffect(() => {
@@ -648,16 +712,17 @@ export default function (context) {
 
 			// Final validation before saving
 			const errors = [];
+			// Keep these in step with PHP_VALUE_VALIDATORS in main.ts, which enforces them
 			if (settings.max_input_vars) {
-				const num = parseInt(settings.max_input_vars);
-				if (isNaN(num) || num < 1 || num > 10000) {
+				const num = Number(settings.max_input_vars);
+				if (!/^\d+$/.test(settings.max_input_vars) || num < 1 || num > 10000) {
 					errors.push('max_input_vars must be between 1 and 10000');
 				}
 			}
 			if (settings.memory_limit) {
 				const memoryRegex = /^(\d+)([KMGT])$/i;
-				if (!memoryRegex.test(settings.memory_limit)) {
-					errors.push('memory_limit must be in format like 256M, 512M, 1G');
+				if (settings.memory_limit !== '-1' && !memoryRegex.test(settings.memory_limit)) {
+					errors.push('memory_limit must be in format like 256M, 512M, 1G, or -1 for no limit');
 				}
 			}
 			if (settings.post_max_size) {
@@ -673,8 +738,8 @@ export default function (context) {
 				}
 			}
 			if (settings.max_input_time) {
-				const num = parseInt(settings.max_input_time);
-				if (isNaN(num) || num < -1 || num > 86400) {
+				const num = Number(settings.max_input_time);
+				if (!/^-?\d+$/.test(settings.max_input_time) || num < -1 || num > 86400) {
 					errors.push('max_input_time must be between -1 and 86400');
 				}
 			}
@@ -818,25 +883,8 @@ export default function (context) {
 				ReactForJSX.createElement('span', { key: 'msg' }, 'Settings saved — restart the site for changes to take effect.'),
 				ReactForJSX.createElement('button', {
 					key: 'restart-btn',
-					disabled: restarting,
-					onClick: () => {
-						setRestarting(true);
-						ipc.invoke('wpdebug:restartSite', { siteId: site.id })
-							.then((res) => {
-								setRestarting(false);
-								if (res && res.success) {
-									setRestartNeeded(false);
-								} else {
-									notifier.notify({ title: 'PHP Settings', message: 'Could not restart site automatically — please stop and start the site manually in Local.' });
-									setRestartNeeded(false);
-								}
-							})
-							.catch(() => {
-								setRestarting(false);
-								notifier.notify({ title: 'PHP Settings', message: 'Could not restart site automatically — please stop and start the site manually in Local.' });
-								setRestartNeeded(false);
-							});
-					},
+					disabled: restarting || stopping,
+					onClick: restartSite,
 					style: {
 						padding: '4px 12px', fontSize: '12px', fontWeight: '700',
 						cursor: restarting ? 'not-allowed' : 'pointer',
@@ -845,6 +893,45 @@ export default function (context) {
 					}
 				}, restarting ? 'Restarting...' : 'Restart Site')
 			]) : null,
+
+			// Leftover processes blocking the site
+			staleProcs ? (() => {
+				const killable = staleProcs.filter((p) => p.killable);
+				const smallButton = (key, label, onClick, primary) => ReactForJSX.createElement('button', {
+					key, onClick, disabled: stopping || restarting,
+					style: {
+						padding: '4px 12px', fontSize: '12px', fontWeight: '700',
+						cursor: stopping || restarting ? 'not-allowed' : 'pointer',
+						border: primary ? 'none' : '1px solid #856404',
+						backgroundColor: primary ? '#856404' : 'transparent',
+						color: primary ? '#fff' : '#856404',
+						borderRadius: '50px', opacity: stopping || restarting ? 0.7 : 1
+					}
+				}, label);
+				return ReactForJSX.createElement('div', {
+					key: 'stale-procs',
+					style: {
+						padding: '10px 12px', marginBottom: 12, backgroundColor: '#FFF3CD',
+						border: '1px solid #FFEAA7', borderRadius: '4px', fontSize: '13px', color: '#856404'
+					}
+				}, [
+					ReactForJSX.createElement('div', { key: 'msg', style: { fontWeight: 'bold', marginBottom: 6 } },
+						killable.length
+							? 'Leftover processes from an earlier Local session are blocking this site. Until they stop, the site can\'t restart and PHP keeps running with the old settings.'
+							: 'Another app is using ports this site needs. Quit it, then restart the site.'),
+					ReactForJSX.createElement('ul', { key: 'list', style: { margin: '0 0 8px 0', paddingLeft: 18, fontFamily: 'monospace', fontSize: '12px' } },
+						staleProcs.map((p) => ReactForJSX.createElement('li', { key: p.pid },
+							`PID ${p.pid} — ${p.name} (${p.holds.join(', ')})${p.killable ? '' : ' — not a Local service, quit it yourself'}`
+						))
+					),
+					ReactForJSX.createElement('div', { key: 'actions', style: { display: 'flex', gap: 8 } }, [
+						killable.length
+							? smallButton('stop', stopping ? 'Stopping...' : `Stop ${killable.length === 1 ? 'it' : `these ${killable.length}`} and restart site`, stopStaleAndRestart, true)
+							: smallButton('retry', restarting ? 'Checking...' : 'Check again', restartSite, true),
+						smallButton('dismiss', 'Dismiss', () => setStaleProcs(null), false)
+					])
+				]);
+			})() : null,
 
 			// Settings
 			ReactForJSX.createElement('div', {
@@ -886,20 +973,21 @@ export default function (context) {
 		if (!update || dismissed) return null;
 
 		const handleUpdate = () => {
-			const url = update.downloadUrl || '';
-			if (!url.startsWith('https://github.com/EverleeLabs/') &&
-				!url.startsWith('https://objects.githubusercontent.com/')) return;
+			// The main process looks up and verifies the release itself
 			setUpdateState('updating');
-			ipc.invoke('wpdebug:performUpdate', { downloadUrl: url })
+			ipc.invoke('wpdebug:performUpdate')
 				.then(() => setUpdateState('done'))
 				.catch(() => setUpdateState('error'));
 		};
 
 		const handleDownload = (e) => {
 			e.preventDefault();
-			const url = update.downloadUrl || '';
-			if (url.startsWith('https://github.com/EverleeLabs/')) {
-				electron.shell.openExternal(url);
+			// Parse rather than prefix-match, so "EverleeLabs/../other" can't slip through
+			let url;
+			try { url = new URL(update.downloadUrl || ''); } catch (_) { return; }
+			if (url.protocol === 'https:' && url.hostname === 'github.com' &&
+				url.pathname.startsWith('/EverleeLabs/local-debug-toolkit/')) {
+				electron.shell.openExternal(url.href);
 			}
 		};
 
