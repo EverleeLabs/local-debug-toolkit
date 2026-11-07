@@ -202,6 +202,8 @@ export default function (context) {
 		const [WP_DEBUG, setWP_DEBUG] = useState(false);
 		const [WP_DEBUG_LOG, setWP_DEBUG_LOG] = useState(false);
 		const [WP_DEBUG_DISPLAY, setWP_DEBUG_DISPLAY] = useState(false);
+		// WP_DEBUG_LOG stays set in wp-config.php while WP_DEBUG is off, but nothing gets logged then
+		const logActive = WP_DEBUG && WP_DEBUG_LOG;
 		const [MU_PLUGIN_ENABLED, setMU_PLUGIN_ENABLED] = useState(false);
 		const [logContent, setLogContent] = useState('');
 		const [logLoading, setLogLoading] = useState(false);
@@ -219,7 +221,7 @@ export default function (context) {
 		}, [site]);
 
 		useEffect(() => {
-			if (!site || !WP_DEBUG_LOG) {
+			if (!site || !logActive) {
 				setLogContent('');
 				return;
 			}
@@ -229,10 +231,10 @@ export default function (context) {
 			ipc.invoke('wpdebug:readLog', { sitePath })
 				.then((content) => { setLogContent(content || ''); setLogLoading(false); })
 				.catch((err) => { setLogContent(`Error loading log: ${err.message || 'Unknown error'}`); setLogLoading(false); });
-		}, [site, WP_DEBUG_LOG]);
+		}, [site, logActive]);
 
 		const loadDebugLog = () => {
-			if (!site || !WP_DEBUG_LOG) { setLogContent(''); return; }
+			if (!site || !logActive) { setLogContent(''); return; }
 			setLogLoading(true);
 			const sitePath = site.path || site.rootPath || site.directory;
 			if (!sitePath) { setLogLoading(false); return; }
@@ -290,8 +292,8 @@ export default function (context) {
 			let checked = typeof value === 'boolean' ? value : !currentVal;
 			setter(checked);
 			saveState({ [key]: checked });
-			// Mirror the backend's auto-clean: turning WP_DEBUG_LOG off removes the mu-plugin
-			if (key === 'WP_DEBUG_LOG' && !checked) setMU_PLUGIN_ENABLED(false);
+			// Mirror the backend's auto-clean: turning WP_DEBUG or WP_DEBUG_LOG off removes the mu-plugin
+			if ((key === 'WP_DEBUG' || key === 'WP_DEBUG_LOG') && !checked) setMU_PLUGIN_ENABLED(false);
 		};
 
 		const handleMuPluginToggle = (value) => {
@@ -335,7 +337,7 @@ export default function (context) {
 				]) : null,
 
 				// Debug log viewer
-				WP_DEBUG_LOG ? ReactForJSX.createElement('div', {
+				logActive ? ReactForJSX.createElement('div', {
 					key: 'debug-log-viewer', style: { marginTop: 30, marginLeft: 20 }
 				}, [
 					ReactForJSX.createElement('div', {

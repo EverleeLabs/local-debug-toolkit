@@ -259,7 +259,7 @@ function ensureFile(pth: string, sitePath: string) {
 }
 
 // MU-plugin: in-WP-admin debug log viewer. Installed on demand via the
-// "Show in WP Admin" toggle; auto-removed when WP_DEBUG_LOG is turned off.
+// "Show in WP Admin" toggle; auto-removed when WP_DEBUG or WP_DEBUG_LOG is turned off.
 const MU_PLUGIN_FILENAME = 'local-debug-toolkit-log-viewer.php';
 
 function getMuPluginPath(sitePath: string): string {
@@ -610,8 +610,8 @@ function registerHandlers() {
     if (state.WP_DEBUG && state.WP_DEBUG_LOG) {
       ensureFile(logPath, sitePath);
     }
-    // Auto-clean: the mu-plugin only makes sense while WP_DEBUG_LOG is on
-    if (!state.WP_DEBUG_LOG) {
+    // Auto-clean: the mu-plugin only makes sense while WP_DEBUG and WP_DEBUG_LOG are both on
+    if (!state.WP_DEBUG || !state.WP_DEBUG_LOG) {
       try { removeMuPlugin(sitePath); } catch (_) {}
     }
     return true;
