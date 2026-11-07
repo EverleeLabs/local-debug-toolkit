@@ -9,10 +9,16 @@ A [Local](https://localwp.com/) addon that gives you tools to debug WordPress si
 - View and clear the debug log directly in Local
 - Open the log file in your default editor
 
+| Debug on | Debug off |
+| --- | --- |
+| ![WP Debug panel with WP_DEBUG and WP_DEBUG_LOG on, and the debug log viewer below](docs/screenshots/wp-debug-on.png) | ![WP Debug panel with WP_DEBUG off, hiding the other toggles](docs/screenshots/wp-debug-off.png) |
+
 ### WP Config
 - View and edit `wp-config.php` with a built-in editor
 - Automatic backups before any changes
 - Open the file in your default editor
+
+![WP Config panel showing wp-config.php in the built-in editor](docs/screenshots/wp-config.png)
 
 ### PHP Settings
 - Modify PHP settings per site:
@@ -23,6 +29,14 @@ A [Local](https://localwp.com/) addon that gives you tools to debug WordPress si
   - `max_input_time`
 - Changes persist across site restarts
 - Values are reflected in WordPress Site Health
+
+![PHP Settings panel with fields for memory limit, post max size, upload max filesize, max input vars and max input time](docs/screenshots/php-settings.png)
+
+### Settings
+- Choose which tools appear under each site's **Tools** tab from **Preferences** > **Local Debug Toolkit**
+- All tools are on by default, and changes apply without restarting Local
+
+![Local Debug Toolkit preferences page with switches for WP Debug, WP Config and PHP Settings](docs/screenshots/preferences.png)
 
 ### Auto-Update Notifications
 - Checks GitHub for new releases and displays a banner when an update is available
